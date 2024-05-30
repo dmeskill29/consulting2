@@ -1,0 +1,593 @@
+---
+title: "Exploring ANCA-Associated Vasculitis: A Statistical Analysis Approach"
+author: "Daniel Meskill"
+subtitle: "Client: Divyesh Mehta"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  pdf_document: 
+    extra_dependencies: ["float"]
+  html_document:
+    df_print: paged
+  word_document: default
+abstract: |
+  This report goes into the epidemiological and clinical aspects of Anti-Neutrophil Cytoplasmic Antibody associated vasculitides, focusing on Microscopic Polyangiitis, Granulomatosis with Polyangiitis, and Eosinophilic Granulomatosis with Polyangiitis. Utilizing a dataset compiling key health metrics relevant to cardiovascular health, immunological response, and pulmonary function, we apply both numerical and categorical data analysis techniques to uncover patterns and correlations that could inform diagnosis and treatment strategies. Our statistical analysis aims to identify values outside the normal range, assess population averages, and perform categorical regression to predict vasculitis subtypes. Our findings include the identification of metrics that are abnormal and models that successfully predicts subtypes with accuracy not much better than random chance. We conclude with a discussion of the implications of our findings and potential future directions for research in this area.
+---
+
+# Introduction
+
+Anti-Neutrophil Cytoplasmic Antibody (ANCA)-associated vasculitides (AAV) are a group of rare autoimmune diseases that cause inflammation of blood vessels. The three main types of AAV are Microscopic Polyangiitis (MPA), Granulomatosis with Polyangiitis (GPA), and Eosinophilic Granulomatosis with Polyangiitis (EGPA). These diseases can affect any organ, but they most commonly affect the kidneys, lungs, and upper respiratory tract. The cause of AAV is unknown, but it is thought to be related to an abnormal immune response. The diagnosis of AAV is based on a combination of symptoms, blood tests, and tissue biopsies. Treatment usually involves a combination of immunosuppressive medications and steroids. The prognosis for AAV varies depending on the severity of the disease and the organs affected. Some patients may have a mild form of the disease that responds well to treatment, while others may have a more severe form that can be life-threatening.
+
+The first part of our analysis focuses on numerical variables that are pivotal in diagnosing and assessing the severity of vasculitides. These include biomarkers such as  Myeloperoxidase (MPO), Proteinase 3 (PR3), Antinuclear Antibody Titer (ANA Titer), Pulmonary Artery Size on Chest CT (CT Chest PA Size), Pro-Brain Natriuretic Peptide (Pro-BNP), Brain Natriuretic Peptide (BNP), Left Ventricular Ejection Fraction (LVEF), Pulmonary Artery Systolic Pressure (PASP), and Right Ventricular to Left Ventricular Diameter (RV-LV Basal diameter) Ratio. Our methodology identifies variables outside the normal range and investigates population averages and transformations.
+
+The second part of our analysis utilizes categorical regression techniques to predict the specific subtype of vasculitis a patient has, based on a combination of clinical and laboratory findings. This includes categorical regression or logistic regression for each subtype vs. the rest.
+
+This statistical analysis, encompassing both numerical and categorical data, aims to deepen our understanding of ANCA-associated vasculitides. Through careful consideration of missing data and adherence to statistical assumptions, this research aims to contribute to the field of rheumatology, aiding clinicians in the effective diagnosis and management of these complex conditions.
+
+# Data Description
+
+This dataset (ANCAPtslistFinal.csv) compiles crucial health metrics relevant to cardiovascular health, immunological response, and pulmonary function. The dataset contains 65 entries with ANCA-associated vasculitides, but 1 patient was excluded due to indeterminate subtype. The dataset includes 15 variables like subtype diagnosis, Indirect Fluorescent Antibody (IFA) subtype, MPO and PR3 enzymes in U/mL indicating immune activity or inflammation; heart failure indicators Pro-BNP and BNP in pg/mL; ANA titer for autoimmune presence; pulmonary artery size from CT chest scans in mm for assessing potential hypertension; LVEF percentage for cardiac efficiency; PASP in mmHg as a pulmonary hypertension marker; and the RV/LV diameter ratio for ventricular size comparison. These comprehensive measures are important in diagnosing, monitoring, and managing vasculitis, offering insights into patient wellness and the effectiveness of treatment strategies. The data also has 253 missing values, which will be addressed later. 
+
+# Results
+
+## Numerical Data Analysis
+
+### Variables Outside Normal Range
+
+The objective of this analysis is to identify the proportion of values exceeding the 97.5th percentile (from the literature) for each numerical variable, aiming to flag potential outliers or significant clinical findings. Our approach involves comparing the 97.5th percentile for each variable, then identifying and calculating the proportion of values that fall beyond this range. We estimate confidence intervals for these abnormal proportions using the binomial proportion confidence interval formula, which provides a statistical measure of the variability inherent in the observed proportions. 
+
+For each numerical variable, we calculated the number of non-missing values above or below their respective thresholds and then divided by the number of non-missing values for that variable to find the proportion. We then used the binomial proportion confidence interval formula to find the 95% confidence interval for each proportion.
+
+From the plot below (see Figure 1), we find that almost every quantitative variable has at least some number of values outside the normal range. The blue dots represent the proportion of values outside the normal range, while the red error bars represent the 95% confidence interval for this proportion. The green dashed line represents the 2.5% threshold, and the red dashed line represents the 50% threshold. Most variables have the majority of their data points outside their respective range, indicating potential abnormalities in these patients.
+
+
+```{r, echo=FALSE, results='hide',warning=FALSE, include=FALSE}
+# Packages
+library(dplyr)
+library(ggplot2)
+library(MASS)
+library(nnet)
+library(dplyr)
+library(knitr)
+library(gridExtra) # For arranging plots
+library(stats)
+library(nnet)
+library(caret)
+```
+
+```{r, echo=FALSE, results='hide',warning=FALSE}
+# Load data
+data <- read.csv("C:/Users/danme/STOR765Project/Project2/ANCAPtslistFinal.csv")
+
+# Remove the ID column and 50th patient
+data <- data[, -1]
+data <- data[-50, ]
+```
+
+```{r, echo=FALSE, results='hide',warning=FALSE}
+# Define normal ranges and population statistics
+normal_ranges <- list(
+  RV.LV.Basal.Diameter.Ratio = list(upper = 1), # RV/LV basal diameter
+  LVEF = list(lower = 0.55, population_mean = 0.62, population_sd = 0.005),
+  CT.Chest.PA.diameter = list(upper = 29.0, population_mean = 24, population_sd = 2.8), # Pulmonary Artery Size
+  PR3.1 = list(upper = 21.0), # PR3 numerical
+  MPO.1 = list(upper = 21.0), # MPO numerical
+  Pro.BNP = list(upper = 300.0, population_mean = 45.1, population_sd = 86.1), # Pro-BNP
+  PASP = list(upper = 36.0, population_mean = 21, population_sd = 4), # PASP
+  ANA.Titer = list(upper = 0),
+  BNP = list(upper = 50.0, population_mean = 12.8, population_sd = 12.3) # BNP
+)
+```
+
+```{r, echo=FALSE, results='hide',warning=FALSE}
+analyze_variable <- function(data, var_name, stats) {
+  variable_data <- na.omit(data[[var_name]])
+  results <- list()
+
+  total_non_missing <- length(variable_data)
+  results$total_non_missing <- total_non_missing
+
+  # Check for upper limit and calculate proportion above normal
+  if (!is.null(stats$upper)) {
+    above_normal <- sum(variable_data > stats$upper, na.rm = TRUE)
+    results$above_normal <- above_normal
+    results$proportion_above_normal <- above_normal / total_non_missing
+
+    # Calculate CI for proportion above normal
+    ci_above <- binom.test(above_normal, total_non_missing)$conf.int
+    results$ci_above_normal <- ci_above
+  }
+
+  # Check for lower limit and calculate proportion below normal
+  if (!is.null(stats$lower)) {
+    below_normal <- sum(variable_data < stats$lower, na.rm = TRUE)
+    results$below_normal <- below_normal
+    results$proportion_below_normal <- below_normal / total_non_missing
+
+    # Calculate CI for proportion below normal
+    ci_below <- binom.test(below_normal, total_non_missing)$conf.int
+    results$ci_below_normal <- ci_below
+  }
+
+  # Compare to population stats if available
+  if (!is.null(stats$population_mean)) {
+    results$sample_mean <- mean(variable_data)
+    results$sample_sd <- sd(variable_data)
+    results$population_mean <- stats$population_mean
+    results$population_sd <- stats$population_sd
+  }
+
+  return(results)
+}
+
+# Apply the function to each variable
+results <- lapply(names(normal_ranges), function(var_name) {
+  analyze_variable(data, var_name, normal_ranges[[var_name]])
+})
+
+# Set names for the results list
+names(results) <- names(normal_ranges)
+```
+
+```{r, echo=FALSE, results='hide',warning=FALSE}
+# Filter out items with empty names
+valid_names <- names(results)[names(results) != ""]
+
+ci_data <- do.call(rbind, lapply(valid_names, function(var_name) {
+  above_normal <- ifelse(!is.null(results[[var_name]]$proportion_above_normal), results[[var_name]]$proportion_above_normal, NA)
+  below_normal <- ifelse(!is.null(results[[var_name]]$proportion_below_normal), results[[var_name]]$proportion_below_normal, NA)
+  ci_lower_above <- ifelse(!is.null(results[[var_name]]$ci_above_normal), results[[var_name]]$ci_above_normal[1], NA)
+  ci_upper_above <- ifelse(!is.null(results[[var_name]]$ci_above_normal), results[[var_name]]$ci_above_normal[2], NA)
+  ci_lower_below <- ifelse(!is.null(results[[var_name]]$ci_below_normal), results[[var_name]]$ci_below_normal[1], NA)
+  ci_upper_below <- ifelse(!is.null(results[[var_name]]$ci_below_normal), results[[var_name]]$ci_below_normal[2], NA)
+
+  data.frame(
+    Variable = var_name,
+    Proportion = ifelse(!is.na(above_normal), above_normal, below_normal),
+    CI_Lower = ifelse(!is.na(ci_lower_above), ci_lower_above, ci_lower_below),
+    CI_Upper = ifelse(!is.na(ci_upper_above), ci_upper_above, ci_upper_below)
+  )
+})) %>%
+  na.omit() %>%
+  arrange(desc(Proportion)) %>%
+  mutate(Variable = factor(Variable, levels = Variable))
+```
+
+```{r, echo=FALSE, results='hide',warning=FALSE,  fig.cap='Proportion of data points beyond their normal range (97.5 percentile). Most variables of have the majority of their data points outside their respective range', fig.pos='H', fig.align='center'}
+ggplot(ci_data, aes(x = Variable, y = Proportion)) +
+  geom_point(color = "blue", size = 3) +
+  geom_errorbar(aes(ymin = CI_Lower, ymax = CI_Upper), width = 0.2, color = "red", size = 1) +
+  geom_hline(yintercept = 0.5, color = "red", linetype = "dashed", size = 1) +
+  geom_hline(yintercept = 0.025, color = "green", linetype = "dashed", size = 1) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "CIs for Proportions Exceeding Normal Ranges",
+    x = "Variable",
+    y = "Proportion"
+  ) +
+  theme(
+    axis.text.y = element_text(color = "darkblue", size = 12),
+    axis.title = element_text(size = 14, face = "bold"),
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold", color = "darkred"),
+    plot.subtitle = element_text(hjust = 0.5, size = 12),
+    legend.position = "none"
+  ) +
+  coord_flip()
+```
+
+```{r}
+# display p-values for whether the proportion of extreme values is significantly different from 2.5%
+
+# Calculate p-values for each variable
+p_values <- lapply(names(normal_ranges), function(var_name) {
+  if (!is.null(normal_ranges[[var_name]]$upper)) {
+    above_normal <- ifelse(!is.null(results[[var_name]]$proportion_above_normal), results[[var_name]]$proportion_above_normal, NA)
+    binom.test(sum(data[[var_name]] > normal_ranges[[var_name]]$upper, na.rm = TRUE), length(data[[var_name]]), p = 0.025)$p.value
+  } else {
+    below_normal <- ifelse(!is.null(results[[var_name]]$proportion_below_normal), results[[var_name]]$proportion_below_normal, NA)
+    binom.test(sum(data[[var_name]] < normal_ranges[[var_name]]$lower, na.rm = TRUE), length(data[[var_name]]), p = 0.025)$p.value
+  }
+})
+
+# Create a dataframe of p-values
+p_values_df <- data.frame(
+  Variable = names(normal_ranges),
+  P_Value = unlist(p_values)
+)
+
+# Print the p-values using kable
+kable(p_values_df, align = "c", caption = "P-Values for Proportion of Extreme Values")
+```
+
+### Population Averages
+
+
+For this analysis, our aim is to assess the mean values of our dataset against established population norms, evaluate the necessity for data transformation based on distribution assessments for potential skewness, and calculate confidence intervals for each variable's mean. This process involves the calculation of sample means and standard deviations, followed by the computation of confidence intervals for these means. To visually aid in the intuitive understanding of how our sample measures up against the general population, we will present the confidence intervals and mean values against known normal ranges, facilitating a clear and comprehensive comparison.
+
+Our first set of plots for this section (see Figure 2) is of the distributions for each quantitative variable. The green line represents the population mean, while the orange lines represent the population mean plus or minus one standard deviation. The blue dashed line represents the upper threshold for the normal range. From this, we can see that some of the variables are fairly right-skewed, while others are more bell-shaped. This information is crucial for determining whether a log transformation is necessary.
+
+```{r check_normality, echo=FALSE, results='hide', warning=FALSE}
+# Check for normality and apply log transformation if needed
+check_normality <- function(var) {
+  var <- var[!is.na(var)] # Remove NA values
+  if (length(var) > 0 && is.numeric(var)) {
+    shapiro_test <- shapiro.test(var)
+    if (shapiro_test$p.value < 0.05) {
+      transformed_var <- log(var, base = 10)
+    } else {
+      transformed_var <- var
+    }
+    list(transformed_var = transformed_var, shapiro_test = shapiro_test)
+  } else {
+    list(transformed_var = var, shapiro_test = NULL)
+  }
+}
+```
+
+```{r perform_analysis, echo=FALSE, results='hide', warning=FALSE}
+# Perform analysis for each variable
+results <- lapply(names(normal_ranges), function(var_name) {
+  var_data <- data[[var_name]]
+  var_range <- normal_ranges[[var_name]]
+
+  # Convert variable to numeric if needed
+  if (!is.numeric(var_data)) {
+    var_data <- as.numeric(var_data)
+  }
+
+  # Calculate sample mean
+  sample_mean <- mean(var_data, na.rm = TRUE)
+
+  # Create histogram plot
+  hist_plot <- ggplot(data.frame(var_data), aes(x = var_data)) +
+    geom_histogram(bins = 30, fill = "lightblue", color = "black") +
+    labs(
+      title = var_name,
+      x = var_name,
+      y = "Frequency"
+    ) +
+    theme_minimal()
+
+  if ("upper" %in% names(var_range)) {
+    hist_plot <- hist_plot +
+      geom_vline(xintercept = var_range$upper, color = "blue", linetype = "dashed", size = 1)
+  }
+
+  # Add lines for population mean and standard deviations if available
+  if (!is.null(var_range$population_mean) && !is.null(var_range$population_sd)) {
+    population_mean <- var_range$population_mean
+    population_sd <- var_range$population_sd
+
+    hist_plot <- hist_plot +
+      geom_vline(xintercept = population_mean, color = "green", linetype = "solid", size = 1) +
+      geom_vline(xintercept = population_mean + population_sd, color = "orange", linetype = "dotted", size = 1) +
+      geom_vline(xintercept = population_mean - population_sd, color = "orange", linetype = "dotted", size = 1)
+  }
+
+
+  # Check for normality and apply log transformation if needed
+  normality_result <- check_normality(var_data)
+  var_data <- normality_result$transformed_var
+
+  # Transform thresholds if needed
+  if ("upper" %in% names(var_range)) {
+    transformed_upper <- log(var_range$upper, base = 10)
+  } else {
+    transformed_upper <- NULL
+  }
+
+  if ("lower" %in% names(var_range)) {
+    transformed_lower <- log(var_range$lower, base = 10)
+  } else {
+    transformed_lower <- NULL
+  }
+
+  # Calculate sample mean and CI
+  if (length(var_data) > 0 && is.numeric(var_data)) {
+    sample_mean <- mean(var_data, na.rm = TRUE)
+    ci_mean <- t.test(var_data, conf.level = 0.95)$conf.int
+  } else {
+    sample_mean <- ci_mean <- NULL
+  }
+
+  # Compare sample mean to transformed thresholds
+  if (!is.null(transformed_upper)) {
+    above_threshold <- var_data > transformed_upper
+    prop_above <- sum(above_threshold, na.rm = TRUE) / length(var_data[!is.na(var_data)])
+    ci_above <- prop.test(sum(above_threshold, na.rm = TRUE), length(var_data[!is.na(var_data)]))$conf.int
+  } else {
+    prop_above <- ci_above <- NULL
+  }
+
+  if (!is.null(transformed_lower)) {
+    below_threshold <- var_data < transformed_lower
+    prop_below <- sum(below_threshold, na.rm = TRUE) / length(var_data[!is.na(var_data)])
+    ci_below <- prop.test(sum(below_threshold, na.rm = TRUE), length(var_data[!is.na(var_data)]))$conf.int
+  } else {
+    prop_below <- ci_below <- NULL
+  }
+
+  # Compare sample mean to population mean if available
+  if (!is.null(var_range$population_mean) && !is.null(var_range$population_sd) && length(var_data) > 0 && is.numeric(var_data)) {
+    population_mean <- log(var_range$population_mean, base = 10) # Transform population mean
+    population_sd <- var_range$population_sd / var_range$population_mean # Calculate coefficient of variation
+    z_score <- (sample_mean - population_mean) / (population_sd / sqrt(length(var_data[!is.na(var_data)])))
+    p_value <- 2 * pnorm(-abs(z_score))
+  } else {
+    population_mean <- population_sd <- z_score <- p_value <- NULL
+  }
+
+  # Store the results
+  list(
+    variable = var_name,
+    histogram = hist_plot,
+    sample_mean = sample_mean,
+    ci_mean = ci_mean,
+    transformed_upper = transformed_upper,
+    transformed_lower = transformed_lower,
+    prop_above_threshold = prop_above,
+    ci_above_threshold = ci_above,
+    prop_below_threshold = prop_below,
+    ci_below_threshold = ci_below,
+    population_mean = population_mean,
+    population_sd = population_sd,
+    z_score = z_score,
+    p_value = p_value,
+    shapiro_test = normality_result$shapiro_test
+  )
+})
+```
+
+```{r, echo=FALSE, results='hide', warning=FALSE, fig.cap='Histograms showing that some variables are right-skewed, while others are more bell-shaped', fig.pos='H', fig.align='center'}
+# Extract the histograms
+histograms <- lapply(results, function(result) {
+  result$histogram
+})
+
+# Plot the histograms
+grid.arrange(grobs = histograms, ncol = 3)
+```
+
+We then apply the log_10 transformation to variables that fail the Shapiro-Wilk test for normality (see Table 1). This transformation is crucial for ensuring that our data adheres to the assumptions of parametric statistical tests. 
+
+```{r shapiro_table , echo=FALSE, warning=FALSE}
+# Create a table of Shapiro-Wilk test p-values
+shapiro_table <- data.frame(
+  Variable = sapply(results, function(x) x$variable),
+  `Shapiro-Wilk p-value` = sapply(results, function(x) ifelse(is.null(x$shapiro_test), NA, x$shapiro_test$p.value))
+)
+
+# Print the table using kable
+kable(shapiro_table, align = "c", caption = "Shapiro-Wilk Test p-values for Each Variable")
+```
+
+The transformed variables are then used to calculate the confidence intervals for the mean, which are plotted alongside the thresholds for each variable (see Figure 3). This visual representation allows for a clear comparison between the sample mean and the normal range, providing valuable insights into the health status of patients with ANCA-associated vasculitides.
+
+```{r, echo=FALSE, results='hide', warning=FALSE}
+# Create a dataframe to store the statistics and thresholds
+stats_df <- data.frame(
+  Variable = sapply(results, function(x) x$variable),
+  Mean = sapply(results, function(x) ifelse(!is.null(x$sample_mean), x$sample_mean, NA)),
+  CI_Lower = sapply(results, function(x) ifelse(!is.null(x$ci_mean), x$ci_mean[1], NA)),
+  CI_Upper = sapply(results, function(x) ifelse(!is.null(x$ci_mean), x$ci_mean[2], NA)),
+  Threshold_Upper = sapply(results, function(x) ifelse(!is.null(x$transformed_upper), x$transformed_upper, NA)),
+  Threshold_Lower = sapply(results, function(x) ifelse(!is.null(x$transformed_lower), x$transformed_lower, NA))
+)
+
+# Generate the plots with improved aesthetics
+plots <- list()
+for (i in 1:nrow(stats_df)) {
+  p <- ggplot(
+    data.frame(Mean = stats_df$Mean[i], CI_Lower = stats_df$CI_Lower[i], CI_Upper = stats_df$CI_Upper[i]),
+    aes(x = 1, y = Mean)
+  ) +
+    geom_point(color = "#2C3E50", size = 3) +
+    geom_errorbar(aes(ymin = CI_Lower, ymax = CI_Upper), width = 0.05, color = "#E74C3C", size = 1) +
+    labs(
+      title = paste("", stats_df$Variable[i]),
+      x = "", y = "Value"
+    ) +
+    theme_minimal(base_size = 16) +
+    theme(
+      plot.title = element_text(hjust = 0.5, face = "bold", color = "#34495E"),
+      axis.text.x = element_blank(),
+      axis.ticks.x = element_blank(),
+      axis.title.x = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank()
+    )
+
+  # Add threshold lines if applicable
+  if (!is.na(stats_df$Threshold_Upper[i])) {
+    p <- p + geom_hline(yintercept = stats_df$Threshold_Upper[i], linetype = "dashed", color = "#18BC9C")
+  }
+  if (!is.na(stats_df$Threshold_Lower[i])) {
+    p <- p + geom_hline(yintercept = stats_df$Threshold_Lower[i], linetype = "dashed", color = "#18BC9C")
+  }
+
+  plots[[stats_df$Variable[i]]] <- p
+}
+
+# Display all plots in a nicely arranged grid, adjust 'ncol' based on the total number of plots
+grid_layout <- do.call(grid.arrange, c(plots, ncol = 3, top = "95% Confidence Intervals with Thresholds"))
+```
+
+## Categorical Regression Analysis
+
+### Multinomial Logistic Regression for Vasculitis Subtypes
+
+The objective of this analysis is to predict the specific subtype of vasculitis a patient has based on a combination of clinical and laboratory findings. We will use multinomial logistic regression to predict each subtype vs. the rest. This process involves the creation of dummy variables for each subtype, followed by the fitting of a logistic regression model for each subtype. We will then evaluate the accuracy of these models using the confusion matrix and metrics such as sensitivity, specificity, and overall accuracy. This analysis aims to provide valuable insights into the predictive power of our models, allowing us to refine our approach and improve the accuracy of our predictions.
+
+The confusion matrix for the multinomial logistic regression model is presented in Table 2. This matrix provides valuable insights into the predictive power of our model, allowing us to assess the accuracy of our predictions and refine our approach accordingly.
+
+```{r, echo=FALSE, results='hide', warning=FALSE}
+# Assuming 'data' is your dataframe
+
+# List of numerical variables to impute
+numerical_variables_to_impute <- c("Pro.BNP", "BNP", "CT.Chest.PA.diameter", "LVEF", "PASP", "ANA.Titer")
+
+# Apply median imputation for each numerical variable
+for (var in numerical_variables_to_impute) {
+  # Calculate the median of non-missing values
+  median_value <- median(data[[var]], na.rm = TRUE)
+
+  # Replace NA with the median value
+  data[[var]][is.na(data[[var]])] <- median_value
+}
+```
+
+```{r, echo=FALSE, warning=FALSE, results='hide'}
+# Load necessary libraries
+# Prepare the data
+data_regression <- data[, c("Dx", "Pro.BNP", "BNP", "CT.Chest.PA.diameter", "ANA.Titer", "LVEF", "PASP")]
+colnames(data_regression) <- c("Subtype", "Pro_BNP", "BNP", "Chest_Size", "ANA_Titer", "Ejection_Fraction", "PASP")
+
+# Convert variables to appropriate types
+data_regression$Subtype <- as.factor(data_regression$Subtype)
+data_regression$ANA_Titer <- as.factor(data_regression$ANA_Titer)
+
+# a. Categorical Regression (Multinomial Logistic Regression)
+# Handle missing values (you can choose an appropriate method)
+data_categ <- na.omit(data_regression)
+
+# Fit the model
+model_categ <- multinom(Subtype ~ Pro_BNP + BNP + Chest_Size + ANA_Titer + Ejection_Fraction + PASP, data = data_categ)
+
+# Make predictions
+predictions_categ <- predict(model_categ, newdata = data_categ)
+
+# Evaluate the model
+# confusionMatrix(predictions_categ, data_categ$Subtype)
+```
+
+```{r, echo=FALSE, warning=FALSE}
+kable(confusionMatrix(predictions_categ, data_categ$Subtype)$table, caption = "Confusion Matrix for Multinomial Logistic Regression")
+```
+
+The metrics for the multinomial logistic regression model are presented in Table 3 and 4. These metrics provide valuable insights into the performance of our model, allowing us to assess the accuracy of our predictions and refine our approach accordingly. The sensitivity, specificity, and overall accuracy of the model are crucial metrics for evaluating its performance and determining the effectiveness of our predictive algorithms. 
+
+Accuracy means the proportion of correctly classified instances, while the No Information Rate is the accuracy that could be achieved by always predicting the most frequent class. Kappa is a measure of agreement between the predicted and actual classes, while Mcnemar's Test assesses the significance of differences between the predicted and actual classes. These metrics provide valuable insights into the performance of our model, allowing us to refine our approach and improve the accuracy of our predictions.
+
+In our case, the multinomial logistic regression model has an overall accuracy of 0.776, which is higher than the No Information Rate of 0.688. The Kappa statistic is 0.393, indicating moderate agreement between the predicted and actual classes. Mcnemar's Test is not significant, suggesting that there is no significant difference between the predicted and actual classes. These metrics provide valuable insights into the performance of our model, allowing us to refine our approach and improve the accuracy of our predictions.
+
+The sensitivity and specificity of the model are also crucial metrics for evaluating its performance. Sensitivity measures the proportion of true positives that are correctly identified by the model, while specificity measures the proportion of true negatives that are correctly identified by the model. These metrics provide valuable insights into the predictive power of our model, allowing us to assess its performance and refine our approach accordingly.
+
+```{r, echo=FALSE, warning=FALSE}
+# Overall accuracy, No information rate, Kappa, and Mcnemar's Test
+
+kable(
+  confusionMatrix(predictions_categ, data_categ$Subtype)$overall %>% as.data.frame() %>% as.data.frame() %>% mutate_all(round, 3),
+  caption = "Metrics for Multinomial Logistic Regression"
+)
+
+
+
+# Extract the metrics and reflect across the diagonal
+kable(
+  confusionMatrix(predictions_categ, data_categ$Subtype)$byClass %>%
+    as.data.frame() %>%
+    t() %>%
+    as.data.frame() %>%
+    mutate_all(round, 3),
+  caption = "Metrics for Multinomial Logistic Regression"
+)
+```
+
+### Binary Logistic Regression for Vasculitis Subtypes
+
+The objective of this analysis is to predict the specific subtype of vasculitis a patient has based on a combination of clinical and laboratory findings. We will use binary logistic regression to predict each subtype vs. the rest. This process involves the creation of binary variables for each subtype, followed by the fitting of a logistic regression model for each subtype. We will then evaluate the accuracy of these models using the confusion matrix and metrics such as sensitivity, specificity, and overall accuracy. This analysis aims to provide valuable insights into the predictive power of our models, allowing us to refine our approach and improve the accuracy of our predictions.
+
+
+```{r, echo=FALSE, results='hide', warning=FALSE}
+# Create binary variables for each subtype
+data$GPA_binary <- ifelse(data$Dx == "GPA", 1, 0)
+data$MPA_binary <- ifelse(data$Dx == "MPA", 1, 0)
+data$EGPA_binary <- ifelse(data$Dx == "EGPA", 1, 0)
+
+# Load the necessary package
+
+# Handle missing values
+data_logistic <- na.omit(data[, c("GPA_binary", "MPA_binary", "EGPA_binary", "Pro.BNP", "BNP", "CT.Chest.PA.diameter", "ANA.Titer", "LVEF", "PASP")])
+
+# Fit logistic regression models for each binary outcome
+model_GPA <- glm(GPA_binary ~ Pro.BNP + BNP + CT.Chest.PA.diameter + ANA.Titer + LVEF + PASP,
+  family = binomial(link = "logit"), data = data_logistic
+)
+
+model_MPA <- glm(MPA_binary ~ Pro.BNP + BNP + CT.Chest.PA.diameter + ANA.Titer + LVEF + PASP,
+  family = binomial(link = "logit"), data = data_logistic
+)
+
+model_EGPA <- glm(EGPA_binary ~ Pro.BNP + BNP + CT.Chest.PA.diameter + ANA.Titer + LVEF + PASP,
+  family = binomial(link = "logit"), data = data_logistic
+)
+```
+
+```{r, echo=FALSE, results='hide', warning=FALSE}
+# Make predictions
+predictions_GPA <- predict(model_GPA, newdata = data_logistic, type = "response")
+predicted_classes_GPA <- ifelse(predictions_GPA > 0.5, 1, 0)
+
+predictions_MPA <- predict(model_MPA, newdata = data_logistic, type = "response")
+predicted_classes_MPA <- ifelse(predictions_MPA > 0.5, 1, 0)
+
+predictions_EGPA <- predict(model_EGPA, newdata = data_logistic, type = "response")
+predicted_classes_EGPA <- ifelse(predictions_EGPA > 0.5, 1, 0)
+
+# Evaluate the models
+cm_GPA <- confusionMatrix(as.factor(predicted_classes_GPA), as.factor(data_logistic$GPA_binary))
+cm_MPA <- confusionMatrix(as.factor(predicted_classes_MPA), as.factor(data_logistic$MPA_binary))
+cm_EGPA <- confusionMatrix(as.factor(predicted_classes_EGPA), as.factor(data_logistic$EGPA_binary))
+
+# Print the confusion matrices
+print(cm_GPA)
+print(cm_MPA)
+print(cm_EGPA)
+```
+
+The confusion matrices for the binary logistic regression models are presented in Table 5-8. These matrices provide valuable insights into the predictive power of our models, allowing us to assess the accuracy of our predictions and refine our approach accordingly. The sensitivity, specificity, and overall accuracy of the models are crucial metrics for evaluating their performance and determining the effectiveness of our predictive algorithms.
+
+The sensitivity and specificity of the models are also crucial metrics for evaluating their performance. Sensitivity measures the proportion of true positives that are correctly identified by the model, while specificity measures the proportion of true negatives that are correctly identified by the model. These metrics provide valuable insights into the predictive power of our models, allowing us to assess their performance and refine our approach accordingly.
+
+```{r, echo=FALSE, warning=FALSE}
+# Overall accuracy, No information rate, Kappa, and Mcnemar's Test
+
+kable(
+  cm_GPA$overall %>% as.data.frame() %>% as.data.frame() %>% mutate_all(round, 3),
+  caption = "Metrics for Binary Logistic Regression (GPA)"
+)
+
+kable(
+  cm_MPA$overall %>% as.data.frame() %>% as.data.frame() %>% mutate_all(round, 3),
+  caption = "Metrics for Binary Logistic Regression (MPA)"
+)
+
+kable(
+  cm_EGPA$overall %>% as.data.frame() %>% as.data.frame() %>% mutate_all(round, 3),
+  caption = "Metrics for Binary Logistic Regression (EGPA)"
+)
+```
+
+```{r, echo=FALSE, warning=FALSE}
+# Sensitivity, specificity, and accuracy for each model relecting across the diagonal
+kable(
+  rbind(
+    cm_GPA$byClass %>% as.data.frame() %>% t() %>% as.data.frame() %>% mutate_all(round, 3),
+    cm_MPA$byClass %>% as.data.frame() %>% t() %>% as.data.frame() %>% mutate_all(round, 3),
+    cm_EGPA$byClass %>% as.data.frame() %>% t() %>% as.data.frame() %>% mutate_all(round, 3)
+  ),
+  caption = "Sensitivity, Specificity, and Accuracy for Binary Logistic Regression Models"
+)
+```
+
+# Conclusion
+
+In conclusion, our statistical analysis of ANCA-associated vasculitides has provided valuable insights into the epidemiological and clinical aspects of these complex autoimmune diseases. Our analysis of numerical variables has identified potential abnormalities in key health metrics, highlighting the importance of monitoring and managing these conditions effectively. The population averages and confidence intervals for each variable have provided a clear comparison between our sample and established norms, allowing us to assess the health status of patients with ANCA-associated vasculitides.
+
+Our categorical regression analysis has successfully predicted the specific subtype of vasculitis a patient has based on a combination of clinical and laboratory findings. The multinomial logistic regression model has an overall accuracy of 0.776, indicating moderate agreement between the predicted and actual classes. The binary logistic regression models have also demonstrated promising results, with sensitivity, specificity, and overall accuracy metrics providing valuable insights into the predictive power of our models.
+
+Overall, our statistical analysis has deepened our understanding of ANCA-associated vasculitides, providing valuable insights into the diagnosis and management of these complex autoimmune diseases. Our findings have important implications for clinical practice, highlighting the importance of monitoring key health metrics and predicting disease subtypes accurately. Future research in this area could focus on refining our predictive algorithms and exploring new diagnostic and treatment strategies for ANCA-associated vasculitides.
+
+# LLM Usage 
+
+I used Claude 3 Opus and Github Copilot to write most of the code and then copied it into R Markdown.
+
